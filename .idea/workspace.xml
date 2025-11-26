@@ -4,8 +4,8 @@
     <option name="autoReloadType" value="NONE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2285958a-3023-4b23-92e5-b932f01d08e9" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/application/test.c" afterDir="false" />
+    <list default="true" id="2285958a-3023-4b23-92e5-b932f01d08e9" name="Changes" comment="add files">
+      <change beforePath="$PROJECT_DIR$/application/app/src/main/java/com/example/me340/MainActivity.kt" beforeDir="false" afterPath="$PROJECT_DIR$/application/app/src/main/java/com/example/me340/MainActivity.kt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -61,6 +61,23 @@
       <option name="presentableId" value="Default" />
       <updated>1764138618244</updated>
     </task>
+    <task id="LOCAL-00001" summary="add test file">
+      <option name="closed" value="true" />
+      <created>1764139682425</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1764139682425</updated>
+    </task>
+    <task id="LOCAL-00002" summary="add files">
+      <option name="closed" value="true" />
+      <created>1764139751177</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1764139751177</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -73,5 +90,10 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="add test file" />
+    <MESSAGE value="add files" />
+    <option name="LAST_COMMIT_MESSAGE" value="add files" />
   </component>
 </project>

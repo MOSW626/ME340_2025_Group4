@@ -56,6 +56,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
 import kotlin.math.sqrt
+//수정본
 
 private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
