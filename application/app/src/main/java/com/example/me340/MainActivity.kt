@@ -56,11 +56,21 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
 import kotlin.math.sqrt
+
 //수정
 
 private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
-data class SensorReading(val temperature: Float, val accX: Float, val accY: Float, val accZ: Float)
+data class SensorReading(
+    val accX: Float,
+    val accY: Float,
+    val accZ: Float,
+    val gyroX: Float,
+    val gyroY: Float,
+    val gyroZ: Float,
+    val temperature: Float, // Object Temperature
+    val ambientTemp: Float
+)
 data class DangerStatus(val isDangerous: Boolean, val reason: String)
 data class Song(val id: Long, val title: String, val artist: String, val contentUri: Uri)
 
@@ -148,22 +158,39 @@ fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
             try {
                 val inputStream: InputStream = socket.inputStream
                 val buffer = ByteArray(1024)
+                var currentLine = ""
                 while (socket.isConnected) {
                     val bytes = inputStream.read(buffer)
-                    val incomingMessage = String(buffer, 0, bytes)
-                    incomingMessage.split('\n').forEach { line ->
+                    currentLine += String(buffer, 0, bytes)
+
+                    var newlineIndex: Int
+                    while (currentLine.indexOf('\n').also { newlineIndex = it } != -1) {
+                        val line = currentLine.substring(0, newlineIndex).trim()
+                        currentLine = currentLine.substring(newlineIndex + 1)
+
                         if (line.isNotBlank()) {
-                            val parts = line.split(",").map { it.split(":") }.associate { if(it.size == 2) it[0] to it[1].toFloatOrNull() else "" to null }
-                            val temp = parts["T"]
-                            val ax = parts["AX"]
-                            val ay = parts["AY"]
-                            val az = parts["AZ"]
-                            if (temp != null && ax != null && ay != null && az != null) {
-                                val reading = SensorReading(temp, ax, ay, az)
-                                launch(Dispatchers.Main) {
-                                    sensorReadings = (sensorReadings + reading).takeLast(30)
-                                    dangerStatus = checkDanger(reading)
+                            val parts = line.split(",")
+                            if (parts.size == 8) {
+                                try {
+                                    val reading = SensorReading(
+                                        accX = parts[0].toFloat(),
+                                        accY = parts[1].toFloat(),
+                                        accZ = parts[2].toFloat(),
+                                        gyroX = parts[3].toFloat(),
+                                        gyroY = parts[4].toFloat(),
+                                        gyroZ = parts[5].toFloat(),
+                                        temperature = parts[6].toFloat(), // objTemp
+                                        ambientTemp = parts[7].toFloat()
+                                    )
+                                    launch(Dispatchers.Main) {
+                                        sensorReadings = (sensorReadings + reading).takeLast(30)
+                                        dangerStatus = checkDanger(reading)
+                                    }
+                                } catch (e: NumberFormatException) {
+                                    Log.e("HealthMonitorScreen", "Failed to parse sensor data: $line", e)
                                 }
+                            } else {
+                                Log.w("HealthMonitorScreen", "Received malformed data line: $line")
                             }
                         }
                     }
@@ -513,15 +540,40 @@ fun SensorDataPanel(reading: SensorReading?) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            DataColumn("체온", "${reading?.temperature ?: "--"}°C")
-            DataColumn("X", reading?.accX?.toString() ?: "--")
-            DataColumn("Y", reading?.accY?.toString() ?: "--")
-            DataColumn("Z", reading?.accZ?.toString() ?: "--")
+        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround
+            ){
+                DataColumn("체온", "${reading?.temperature ?: "--"}°C")
+                DataColumn("주변온도", "${reading?.ambientTemp ?: "--"}°C")
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Text("가속도", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DataColumn("X", String.format("%.2f", reading?.accX ?: 0f))
+                DataColumn("Y", String.format("%.2f", reading?.accY ?: 0f))
+                DataColumn("Z", String.format("%.2f", reading?.accZ ?: 0f))
+            }
+
+            Spacer(Modifier.height(16.dp))
+            
+            Text("자이로", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DataColumn("X", String.format("%.2f", reading?.gyroX ?: 0f))
+                DataColumn("Y", String.format("%.2f", reading?.gyroY ?: 0f))
+                DataColumn("Z", String.format("%.2f", reading?.gyroZ ?: 0f))
+            }
         }
     }
 }
