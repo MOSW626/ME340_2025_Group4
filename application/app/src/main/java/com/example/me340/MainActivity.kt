@@ -147,9 +147,16 @@ fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
     fun checkDanger(reading: SensorReading): DangerStatus {
         if (reading.temperature >= 38.0f) return DangerStatus(true, "고열 감지 (38°C 이상)")
         if (reading.temperature <= 35.0f) return DangerStatus(true, "저체온 감지 (35°C 이하)")
-        val totalAccel = sqrt(reading.accX * reading.accX + reading.accY * reading.accY + reading.accZ * reading.accZ)
-        if (totalAccel > 25.0f) return DangerStatus(true, "급격한 움직임 감지 (낙상 의심)")
-        if (totalAccel < 2.0f && sensorReadings.size > 5) return DangerStatus(true, "움직임 없음 (의식 불명 의심)")
+
+        // Calculate the Root Mean Square of the acceleration values
+        val accelRMS = sqrt((reading.accX * reading.accX + reading.accY * reading.accY + reading.accZ * reading.accZ) / 3f)
+
+        // A high RMS value can indicate a shock or impact (like a fall)
+        if (accelRMS > 15.0f) return DangerStatus(true, "급격한 충격 감지 (낙상 의심)")
+
+        // A low RMS value over time can indicate no movement
+        if (accelRMS < 1.2f && sensorReadings.size > 5) return DangerStatus(true, "움직임 없음 (의식 불명 의심)")
+
         return DangerStatus(false, "")
     }
 
@@ -344,6 +351,9 @@ fun HealthDashboardUI(
     onDisconnect: () -> Unit
 ) {
     val currentReading = readings.lastOrNull()
+    val accelRMS = currentReading?.let {
+        sqrt((it.accX * it.accX + it.accY * it.accY + it.accZ * it.accZ) / 3f)
+    }
 
     if (dangerStatus.isDangerous) {
         LaunchedEffect(dangerStatus) {
@@ -360,13 +370,26 @@ fun HealthDashboardUI(
             } else {
                  Spacer(modifier = Modifier.height(8.dp))
             }
-            SensorDataPanel(reading = currentReading)
+            SensorDataPanel(reading = currentReading, accelRMS = accelRMS)
             Spacer(Modifier.height(16.dp))
             TemperatureChart(data = readings)
         }
         
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            MusicPlayerUI(songs = songs)
+            if (songs.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("음악 파일을 찾을 수 없습니다", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("\n- 저장 공간 접근 권한을 허용했는지 확인해주세요.\n- 'Music' 폴더에 MP3 파일이 있는지 확인해주세요.", fontSize = 14.sp, color = Color.Gray)
+                    }
+                }
+            } else {
+                MusicPlayerUI(songs = songs)
+            }
             Spacer(modifier = Modifier.height(16.dp))
             if (connected) {
                 Button(onClick = onDisconnect) { Text("Disconnect") }
@@ -535,7 +558,7 @@ fun AlertPanel(reason: String) {
 }
 
 @Composable
-fun SensorDataPanel(reading: SensorReading?) {
+fun SensorDataPanel(reading: SensorReading?, accelRMS: Float?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
@@ -546,12 +569,12 @@ fun SensorDataPanel(reading: SensorReading?) {
                 horizontalArrangement = Arrangement.SpaceAround
             ){
                 DataColumn("체온", "${reading?.temperature ?: "--"}°C")
-                DataColumn("주변온도", "${reading?.ambientTemp ?: "--"}°C")
+                DataColumn("충격량(RMS)", String.format("%.2f", accelRMS ?: 0f))
             }
 
             Spacer(Modifier.height(16.dp))
 
-            Text("가속도", style = MaterialTheme.typography.titleMedium)
+            Text("가속도 (X, Y, Z)", style = MaterialTheme.typography.titleMedium)
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
@@ -560,19 +583,6 @@ fun SensorDataPanel(reading: SensorReading?) {
                 DataColumn("X", String.format("%.2f", reading?.accX ?: 0f))
                 DataColumn("Y", String.format("%.2f", reading?.accY ?: 0f))
                 DataColumn("Z", String.format("%.2f", reading?.accZ ?: 0f))
-            }
-
-            Spacer(Modifier.height(16.dp))
-            
-            Text("자이로", style = MaterialTheme.typography.titleMedium)
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DataColumn("X", String.format("%.2f", reading?.gyroX ?: 0f))
-                DataColumn("Y", String.format("%.2f", reading?.gyroY ?: 0f))
-                DataColumn("Z", String.format("%.2f", reading?.gyroZ ?: 0f))
             }
         }
     }
