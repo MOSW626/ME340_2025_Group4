@@ -56,11 +56,14 @@ import java.io.IOException
 import java.util.UUID
 import kotlin.math.sqrt
 
-// 수정: ESP32의 BLE 서비스 및 특성에 맞는 UUID로 변경해주세요.
-// 이 값들은 ESP32 펌웨어에 설정된 값과 일치해야 합니다.
-private val SENSOR_SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E") // 예시: 실제 서비스 UUID로 변경
-private val SENSOR_CHARACTERISTIC_UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // 예시: 실제 특성 UUID로 변경
-private val CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E") // 표준 CCCD UUID (변경 불필요)
+// ESP32 펌웨어에 설정된 UUID 값들
+// 서비스 UUID
+private val SENSOR_SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+// 데이터 수신을 위한 특성(Characteristic) UUID (ESP32의 TX)
+private val SENSOR_CHARACTERISTIC_UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+// 알림(Notification) 활성화를 위한 CCCD(Client Characteristic Configuration Descriptor) UUID (표준 값)
+private val CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
 
 data class SensorReading(
     val accX: Float,
