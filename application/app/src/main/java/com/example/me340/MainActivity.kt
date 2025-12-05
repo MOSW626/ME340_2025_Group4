@@ -30,7 +30,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -351,39 +353,75 @@ fun HealthDashboardUI(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.weight(1f).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (dangerStatus.isDangerous) {
-                AlertPanel(reason = dangerStatus.reason)
-            } else {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-            SensorDataPanel(reading = currentReading, accelRMS = accelRMS)
-            Spacer(Modifier.height(16.dp))
-            TemperatureChart(data = readings)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()) // 화면 전체를 스크롤 가능하게 만듭니다.
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (dangerStatus.isDangerous) {
+            AlertPanel(reason = dangerStatus.reason)
+        } else {
+            Spacer(modifier = Modifier.height(8.dp))
         }
+        SensorDataPanel(reading = currentReading, accelRMS = accelRMS)
+        Spacer(Modifier.height(16.dp))
+        TemperatureChart(data = readings)
+        Spacer(Modifier.height(16.dp))
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            if (songs.isEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("음악 파일을 찾을 수 없습니다", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("\n- 저장 공간 접근 권한을 허용했는지 확인해주세요.\n- 'Music' 폴더에 MP3 파일이 있는지 확인해주세요.", fontSize = 14.sp, color = Color.Gray)
-                    }
+        if (songs.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("음악 파일을 찾을 수 없습니다", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("\n- 저장 공간 접근 권한을 허용했는지 확인해주세요.\n- 'Music' 폴더에 MP3 파일이 있는지 확인해주세요.", fontSize = 14.sp, color = Color.Gray)
                 }
-            } else {
-                MusicPlayerUI(songs = songs)
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            SpeakerConnectionGuide()
-            Spacer(modifier = Modifier.height(16.dp))
+        } else {
+            MusicPlayerUI(songs = songs)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ESP32 연결 버튼을 별도의 카드로 분리합니다.
+        EspConnectionControl(
+            connected = connected,
+            onConnectClick = onConnectClick,
+            onDisconnect = onDisconnect
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        SpeakerConnectionGuide()
+    }
+}
+
+@Composable
+fun EspConnectionControl(connected: Boolean, onConnectClick: () -> Unit, onDisconnect: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+        ) {
+            Text("ESP32 센서 연결", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(8.dp))
             if (connected) {
+                Text(
+                    text = "센서가 연결되었습니다.",
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
                 Button(onClick = onDisconnect) { Text("ESP32 연결 해제") }
             } else {
+                Text(
+                    text = "실시간 센서 데이터를 보려면 ESP32 모듈에 연결해주세요.",
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
                 Button(onClick = onConnectClick) { Text("ESP32 센서 연결") }
             }
         }
