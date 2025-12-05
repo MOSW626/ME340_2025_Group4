@@ -3,6 +3,11 @@ package com.example.me340
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.bluetooth.*
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -12,8 +17,8 @@ import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelUuid
 import android.provider.MediaStore
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,7 +32,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -44,45 +48,61 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.me340.ui.theme.ME340Theme
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.Socket
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.io.IOException
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.UUID
 import kotlin.math.sqrt
 
+// ESP32 펌웨어에 설정된 UUID 값들
+// 서비스 UUID
+private val SENSOR_SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+// 데이터 수신을 위한 특성(Characteristic) UUID (ESP32의 TX)
+private val SENSOR_CHARACTERISTIC_UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+// 알림(Notification) 활성화를 위한 CCCD(Client Characteristic Configuration Descriptor) UUID (표준 값)
+private val CLIENT_CHARACTERISTIC_CONFIG_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+
 data class SensorReading(
-    val accX: Float,
-    val accY: Float,
-    val accZ: Float,
-    val gyroX: Float,
-    val gyroY: Float,
-    val gyroZ: Float,
     val temperature: Float, // Object Temperature
-    val ambientTemp: Float
+    val ambientTemp: Float,
+    val isCriticalShock: Int
 )
 data class DangerStatus(val isDangerous: Boolean, val reason: String)
 data class Song(val id: Long, val title: String, val artist: String, val contentUri: Uri)
 
+@SuppressLint("MissingPermission")
 class MainActivity : ComponentActivity() {
+    private val bluetoothManager: BluetoothManager by lazy {
+        getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    }
+    private val bluetoothAdapter: BluetoothAdapter? by lazy {
+        bluetoothManager.adapter
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
             ME340Theme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    HealthMonitorScreen()
+                    val btAdapter = bluetoothAdapter
+                    if (btAdapter != null) {
+                        HealthMonitorScreen(btAdapter)
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("This device does not support Bluetooth")
+                        }
+                    }
                 }
             }
         }
@@ -92,21 +112,21 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
-fun HealthMonitorScreen() {
+fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    var discoveredDevices by remember { mutableStateOf(listOf<BluetoothDevice>()) }
+    var isScanning by remember { mutableStateOf(false) }
+    var isConnecting by remember { mutableStateOf(false) }
+    var showDeviceDialog by remember { mutableStateOf(false) }
+    var connectedDevice by remember { mutableStateOf<BluetoothDevice?>(null) }
+    var bluetoothGatt by remember { mutableStateOf<BluetoothGatt?>(null) }
     var sensorReadings by remember { mutableStateOf(listOf<SensorReading>()) }
     var dangerStatus by remember { mutableStateOf(DangerStatus(isDangerous = false, reason = "")) }
     var songList by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var lineBuffer by remember { mutableStateOf("") }
     var currentScreen by remember { mutableStateOf("dashboard") } // "dashboard" or "settings"
-
-    // WiFi Connection State
-    var isConnecting by remember { mutableStateOf(false) }
-    var isConnected by remember { mutableStateOf(false) }
-    var espIpAddress by remember { mutableStateOf("192.168.4.1") } // Default IP for AP Mode
-    var connectionJob by remember { mutableStateOf<Job?>(null) }
-    var socket by remember { mutableStateOf<Socket?>(null) }
 
     val requestPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         if (permissions.entries.all { it.value }) {
@@ -118,9 +138,9 @@ fun HealthMonitorScreen() {
 
     LaunchedEffect(Unit) {
         val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.READ_MEDIA_AUDIO)
+            arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
         } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
         }
         val permissionsToRequest = requiredPermissions.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
@@ -135,77 +155,135 @@ fun HealthMonitorScreen() {
     fun checkDanger(reading: SensorReading): DangerStatus {
         if (reading.temperature >= 38.0f) return DangerStatus(true, "고열 감지 (38°C 이상)")
         if (reading.temperature <= 35.0f) return DangerStatus(true, "저체온 감지 (35°C 이하)")
-        val accelRMS = sqrt((reading.accX * reading.accX + reading.accY * reading.accY + reading.accZ * reading.accZ) / 3f)
-        if (accelRMS > 15.0f) return DangerStatus(true, "급격한 충격 감지 (낙상 의심)")
-        if (accelRMS < 1.2f && sensorReadings.size > 5) return DangerStatus(true, "움직임 없음 (의식 불명 의심)")
+        if (reading.isCriticalShock == 1) return DangerStatus(true, "급격한 충격 감지 (낙상 의심)")
         return DangerStatus(false, "")
     }
 
-    fun connectToEsp(ip: String) {
-        if (isConnected || isConnecting) return
-        isConnecting = true
-        connectionJob = coroutineScope.launch(Dispatchers.IO) {
-            try {
-                val newSocket = Socket(ip, 8888) // Assuming port 8888
-                socket = newSocket
-                withContext(Dispatchers.Main) {
-                    isConnected = true
-                    isConnecting = false
-                }
-
-                val reader = BufferedReader(InputStreamReader(newSocket.getInputStream()))
-                while (isConnected && !newSocket.isClosed) {
-                    val line = reader.readLine() ?: break // Connection closed
-                    val parts = line.split(",")
-                    if (parts.size == 8) {
-                        try {
-                            val reading = SensorReading(
-                                accX = parts[0].toFloat(), accY = parts[1].toFloat(), accZ = parts[2].toFloat(),
-                                gyroX = parts[3].toFloat(), gyroY = parts[4].toFloat(), gyroZ = parts[5].toFloat(),
-                                temperature = parts[6].toFloat(), ambientTemp = parts[7].toFloat()
-                            )
-                            withContext(Dispatchers.Main) {
-                                sensorReadings = (sensorReadings + reading).takeLast(30)
-                                dangerStatus = checkDanger(reading)
-                            }
-                        } catch (e: NumberFormatException) {
-                            Log.e("WiFiConnection", "Failed to parse sensor data: $line", e)
-                        }
-                    } else {
-                        Log.w("WiFiConnection", "Received malformed data line: $line")
+    val gattCallback = remember {
+        object : BluetoothGattCallback() {
+            override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    Log.d("GattCallback", "Connected to GATT server.")
+                    coroutineScope.launch(Dispatchers.Main) {
+                        connectedDevice = gatt.device
+                        isConnecting = false
+                        bluetoothGatt = gatt
+                    }
+                    gatt.discoverServices()
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    Log.d("GattCallback", "Disconnected from GATT server.")
+                    coroutineScope.launch(Dispatchers.Main) {
+                        connectedDevice = null
+                        isConnecting = false
+                        bluetoothGatt?.close()
+                        bluetoothGatt = null
                     }
                 }
-            } catch (e: Exception) {
-                Log.e("WiFiConnection", "Connection failed", e)
-            } finally {
-                withContext(Dispatchers.Main) {
-                    isConnected = false
-                    isConnecting = false
-                    socket?.close()
-                    socket = null
+            }
+
+            override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    val service = gatt.getService(SENSOR_SERVICE_UUID)
+                    val characteristic = service?.getCharacteristic(SENSOR_CHARACTERISTIC_UUID)
+                    if (characteristic != null) {
+                        gatt.setCharacteristicNotification(characteristic, true)
+                        val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)
+                        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        gatt.writeDescriptor(descriptor)
+                        Log.d("GattCallback", "Subscribed to notifications")
+                    } else {
+                        Log.w("GattCallback", "Sensor characteristic not found")
+                    }
+                } else {
+                    Log.w("GattCallback", "onServicesDiscovered received: $status")
+                }
+            }
+
+            override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+
+                val data = characteristic.value
+                val receivedText = String(data, Charsets.UTF_8)
+                lineBuffer += receivedText
+
+                var newlineIndex: Int
+                while (lineBuffer.indexOf('\n').also { newlineIndex = it } != -1) {
+                    val line = lineBuffer.substring(0, newlineIndex).trim()
+                    lineBuffer = lineBuffer.substring(newlineIndex + 1)
+
+                    if (line.isNotBlank()) {
+                        val parts = line.split(",")
+
+                        if (parts.size == 3) {
+                            try {
+                                val reading = SensorReading(
+                                    temperature = parts[0].toFloat(),
+                                    ambientTemp = parts[1].toFloat(),
+                                    isCriticalShock = parts[2].toInt()
+                                )
+                                coroutineScope.launch(Dispatchers.Main) {
+                                    sensorReadings = (sensorReadings + reading).takeLast(30)
+                                    dangerStatus = checkDanger(reading)
+                                }
+                            } catch (e: NumberFormatException) {
+                                Log.e("GattCallback", "Failed to parse sensor data: $line", e)
+                            }
+                        } else {
+                            Log.w("GattCallback", "Received malformed data line: $line")
+                        }
+                    }
                 }
             }
         }
     }
 
-    fun disconnectFromEsp() {
-        if (!isConnected && !isConnecting) return
-        coroutineScope.launch(Dispatchers.IO) {
-            try {
-                socket?.close()
-            } catch (e: Exception) {
-                Log.e("WiFiConnection", "Error closing socket", e)
+    fun connectToDevice(device: BluetoothDevice) {
+        isConnecting = true
+        showDeviceDialog = false
+        device.connectGatt(context, false, gattCallback)
+    }
+
+    val bluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
+    val scanCallback = remember {
+        object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                super.onScanResult(callbackType, result)
+                if (!discoveredDevices.any { it.address == result.device.address }) {
+                    discoveredDevices = discoveredDevices + result.device
+                }
+            }
+            override fun onScanFailed(errorCode: Int) {
+                Log.e("ScanCallback", "onScanFailed: code $errorCode")
+                isScanning = false
             }
         }
-        connectionJob?.cancel()
-        socket = null
-        isConnected = false
-        isConnecting = false
+    }
+
+    fun startBleScan() {
+        if (!bluetoothAdapter.isEnabled) {
+            (context as? Activity)?.startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            return
+        }
+        if (isScanning) return
+
+        discoveredDevices = emptyList()
+        isScanning = true
+        val scanFilter = ScanFilter.Builder().setServiceUuid(ParcelUuid(SENSOR_SERVICE_UUID)).build()
+        val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+
+        bluetoothLeScanner.startScan(listOf(scanFilter), scanSettings, scanCallback)
+        coroutineScope.launch {
+            delay(10000) // Stop scan after 10 seconds
+            if (isScanning) {
+                bluetoothLeScanner.stopScan(scanCallback)
+                isScanning = false
+            }
+        }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            disconnectFromEsp()
+            bluetoothLeScanner.stopScan(scanCallback)
+            bluetoothGatt?.close()
         }
     }
 
@@ -238,18 +316,35 @@ fun HealthMonitorScreen() {
                     songs = songList
                 )
                 "settings" -> SettingsContent(
-                    connected = isConnected,
-                    ipAddress = espIpAddress,
-                    onIpAddressChange = { espIpAddress = it },
-                    onConnectClick = { connectToEsp(espIpAddress) },
-                    onDisconnect = { disconnectFromEsp() }
+                    connected = connectedDevice != null,
+                    onConnectClick = {
+                        startBleScan()
+                        showDeviceDialog = true
+                    },
+                    onDisconnect = { bluetoothGatt?.disconnect() }
+                )
+            }
+
+            if (showDeviceDialog) {
+                DeviceDiscoveryDialog(
+                    devices = discoveredDevices,
+                    isScanning = isScanning,
+                    onDismiss = {
+                        bluetoothLeScanner.stopScan(scanCallback)
+                        isScanning = false
+                        showDeviceDialog = false
+                    },
+                    onDeviceClick = { device ->
+                        bluetoothLeScanner.stopScan(scanCallback)
+                        isScanning = false
+                        connectToDevice(device)
+                    }
                 )
             }
 
             if (isConnecting) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center){
                     CircularProgressIndicator()
-                    Text("연결 중...", color = Color.White, modifier = Modifier.padding(top = 60.dp))
                 }
             }
         }
@@ -263,9 +358,7 @@ fun DashboardContent(
     songs: List<Song>
 ) {
     val currentReading = readings.lastOrNull()
-    val accelRMS = currentReading?.let {
-        sqrt((it.accX * it.accX + it.accY * it.accY + it.accZ * it.accZ) / 3f)
-    }
+    val currentDate = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))
 
     if (dangerStatus.isDangerous) {
         LaunchedEffect(dangerStatus) {
@@ -287,7 +380,14 @@ fun DashboardContent(
         } else {
             Spacer(modifier = Modifier.height(8.dp))
         }
-        SensorDataPanel(reading = currentReading, accelRMS = accelRMS)
+
+        Text(
+            text = currentDate,
+            fontSize = 16.sp,
+            color = Color.Gray,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        SensorDataPanel(reading = currentReading)
         Spacer(Modifier.height(16.dp))
         SensorDataChart(data = readings)
         Spacer(Modifier.height(16.dp))
@@ -312,8 +412,6 @@ fun DashboardContent(
 @Composable
 fun SettingsContent(
     connected: Boolean,
-    ipAddress: String,
-    onIpAddressChange: (String) -> Unit,
     onConnectClick: () -> Unit,
     onDisconnect: () -> Unit
 ) {
@@ -326,8 +424,6 @@ fun SettingsContent(
     ) {
         EspConnectionControl(
             connected = connected,
-            ipAddress = ipAddress,
-            onIpAddressChange = onIpAddressChange,
             onConnectClick = onConnectClick,
             onDisconnect = onDisconnect
         )
@@ -337,14 +433,7 @@ fun SettingsContent(
 }
 
 @Composable
-fun EspConnectionControl(
-    connected: Boolean,
-    ipAddress: String,
-    onIpAddressChange: (String) -> Unit,
-    onConnectClick: () -> Unit,
-    onDisconnect: () -> Unit
-) {
-    val context = LocalContext.current
+fun EspConnectionControl(connected: Boolean, onConnectClick: () -> Unit, onDisconnect: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
@@ -352,47 +441,22 @@ fun EspConnectionControl(
         Column(
             modifier = Modifier.padding(16.dp),
         ) {
-            Text("ESP32 센서 연결 (Wi-Fi)", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("ESP32 센서 연결", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Spacer(modifier = Modifier.height(8.dp))
             if (connected) {
                 Text(
-                    text = "센서가 연결되었습니다. (IP: $ipAddress)",
+                    text = "센서가 연결되었습니다.",
                     fontSize = 14.sp,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
-                Button(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text("ESP32 연결 해제") }
+                Button(onClick = onDisconnect) { Text("ESP32 연결 해제") }
             } else {
                 Text(
-                    text = "ESP32의 Wi-Fi AP에 먼저 연결한 후, IP 주소를 입력하고 센서 연결 버튼을 눌러주세요.",
+                    text = "실시간 센서 데이터를 보려면 ESP32 모듈에 연결해주세요.",
                     fontSize = 14.sp,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
-                OutlinedTextField(
-                    value = ipAddress,
-                    onValueChange = onIpAddressChange,
-                    label = { Text("ESP32 IP 주소") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = onConnectClick,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("센서 연결")
-                    }
-                    Button(
-                        onClick = { context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Wi-Fi 설정")
-                    }
-                }
+                Button(onClick = onConnectClick) { Text("ESP32 센서 연결") }
             }
         }
     }
@@ -421,6 +485,45 @@ fun SpeakerConnectionGuide() {
     }
 }
 
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DeviceDiscoveryDialog(
+    devices: List<BluetoothDevice>,
+    isScanning: Boolean,
+    onDismiss: () -> Unit,
+    onDeviceClick: (BluetoothDevice) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("주변 기기 검색") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                if (isScanning) {
+                    CircularProgressIndicator()
+                    Text("ESP32 검색 중...", modifier = Modifier.padding(top = 8.dp))
+                }
+                if (devices.isEmpty() && !isScanning) {
+                    Text("검색된 기기가 없습니다.", modifier = Modifier.padding(vertical = 16.dp))
+                }
+                LazyColumn(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    items(devices) { device ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { onDeviceClick(device) }.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(device.name ?: "Unknown BLE Device", modifier = Modifier.weight(1f))
+                            Text(device.address, fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("닫기") }
+        }
+    )
+}
 
 @Composable
 fun MusicPlayerUI(songs: List<Song>) {
@@ -473,7 +576,7 @@ fun MusicPlayerUI(songs: List<Song>) {
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("재생중", style = MaterialTheme.typography.titleMedium)
+            Text("Now Playing", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(4.dp))
             Text(currentSong?.title ?: "선택된 노래 없음", fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(currentSong?.artist ?: "", fontSize = 14.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -541,30 +644,20 @@ fun AlertPanel(reason: String) {
 }
 
 @Composable
-fun SensorDataPanel(reading: SensorReading?, accelRMS: Float?) {
-    val sdf = SimpleDateFormat("yyyy년 MM월 dd일", Locale.KOREA)
-    val currentDate = sdf.format(Date())
+fun SensorDataPanel(reading: SensorReading?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = currentDate,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceAround
             ){
                 DataColumn("체온", "${reading?.temperature ?: "--"}°C")
                 DataColumn("주변 온도", "${reading?.ambientTemp ?: "--"}°C")
-                DataColumn("충격량(RMS)", String.format("%.2f", accelRMS ?: 0f))
+                DataColumn("낙상", if (reading?.isCriticalShock == 1) "감지" else "정상")
             }
-
-
         }
     }
 }
@@ -579,19 +672,19 @@ fun DataColumn(label: String, value: String) {
 
 @Composable
 fun SensorDataChart(data: List<SensorReading>) {
-    val tempColor = Color(0xFFE57373) // Red 300
-    val ambientTempColor = Color(0xFFFFB74D) // Orange 300
-    val shockColor = Color(0xFF64B5F6) // Blue 300
+    val tempColor = Color(0xFFEC407A) // Pinkish Red
+    val ambientTempColor = Color(0xFF42A5F5) // Blue
+    val shockColor = Color(0xFF26A69A) // Teal
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text("실시간 센서 그래프", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-            Text("■", color = tempColor, modifier = Modifier.padding(end = 4.dp))
-            Text("체온", modifier = Modifier.padding(end = 12.dp))
-            Text("■", color = ambientTempColor, modifier = Modifier.padding(end = 4.dp))
-            Text("주변온도", modifier = Modifier.padding(end = 12.dp))
-            Text("■", color = shockColor, modifier = Modifier.padding(end = 4.dp))
-            Text("충격량")
+            Text("-", color = tempColor, modifier = Modifier.padding(end = 4.dp))
+            Text("체온", modifier = Modifier.padding(end = 8.dp))
+            Text("-", color = ambientTempColor, modifier = Modifier.padding(end = 4.dp))
+            Text("주변온도", modifier = Modifier.padding(end = 8.dp))
+            Text("-", color = shockColor, modifier = Modifier.padding(end = 4.dp))
+            Text("낙상")
         }
         Box(
             modifier = Modifier
@@ -604,54 +697,69 @@ fun SensorDataChart(data: List<SensorReading>) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val stepX = if (data.size > 1) size.width / (data.size - 1) else 0f
 
-                    // Temperature data normalization values
-                    val allTemperatures = data.flatMap { listOf(it.temperature, it.ambientTemp) }
-                    val maxTemp = (allTemperatures.maxOrNull() ?: 40f).coerceAtLeast(38f)
-                    val minTemp = (allTemperatures.minOrNull() ?: 35f).coerceAtMost(36f)
+                    // Temperature data and drawing
+                    val temperatures = data.map { it.temperature }
+                    val ambientTemperatures = data.map { it.ambientTemp }
+                    val allTemps = temperatures + ambientTemperatures
+                    val maxTemp = (allTemps.maxOrNull() ?: 40f).coerceAtLeast(38f)
+                    val minTemp = (allTemps.minOrNull() ?: 20f).coerceAtMost(36f)
                     val tempRange = (maxTemp - minTemp).takeIf { it > 0 } ?: 1f
 
-                    // Shock data normalization values
-                    val shocks = data.map { reading ->
-                        sqrt((reading.accX * reading.accX + reading.accY * reading.accY + reading.accZ * reading.accZ) / 3f)
+                    // Draw Body Temperature
+                    if (data.size > 1) {
+                        for (i in 0 until data.size - 1) {
+                            val p1y = size.height * (1 - ((temperatures[i] - minTemp) / tempRange).coerceIn(0f, 1f))
+                            val p2y = size.height * (1 - ((temperatures[i + 1] - minTemp) / tempRange).coerceIn(0f, 1f))
+                            drawLine(
+                                color = tempColor,
+                                start = Offset(i * stepX, p1y),
+                                end = Offset((i + 1) * stepX, p2y),
+                                strokeWidth = 4f
+                            )
+                        }
+                    } else if (data.isNotEmpty()){
+                        val p1y = size.height * (1 - ((temperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
+                        drawCircle(tempColor, radius = 8f, center = Offset(0f, p1y))
                     }
-                    val maxShock = (shocks.maxOrNull() ?: 20f).coerceAtLeast(15f)
-                    val minShock = (shocks.minOrNull() ?: 0f)
-                    val shockRange = (maxShock - minShock).takeIf { it > 0 } ?: 1f
 
+                    // Draw Ambient Temperature
+                    if (data.size > 1) {
+                        for (i in 0 until data.size - 1) {
+                            val p1y = size.height * (1 - ((ambientTemperatures[i] - minTemp) / tempRange).coerceIn(0f, 1f))
+                            val p2y = size.height * (1 - ((ambientTemperatures[i + 1] - minTemp) / tempRange).coerceIn(0f, 1f))
+                            drawLine(
+                                color = ambientTempColor,
+                                start = Offset(i * stepX, p1y),
+                                end = Offset((i + 1) * stepX, p2y),
+                                strokeWidth = 4f
+                            )
+                        }
+                    } else if (data.isNotEmpty()){
+                        val p1y = size.height * (1 - ((ambientTemperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
+                        drawCircle(ambientTempColor, radius = 8f, center = Offset(0f, p1y))
+                    }
+
+
+                    // Shock data (isCriticalShock) and drawing
+                    val shocks = data.map { it.isCriticalShock.toFloat() }
+                    val maxShock = 1f
+                    val minShock = 0f
+                    val shockRange = (maxShock - minShock).takeIf { it > 0 } ?: 1f
 
                     if (data.size > 1) {
                         for (i in 0 until data.size - 1) {
-                            // Body Temperature
-                            val temp1 = data[i].temperature
-                            val temp2 = data[i+1].temperature
-                            val p1yTemp = size.height * (1 - ((temp1 - minTemp) / tempRange).coerceIn(0f, 1f))
-                            val p2yTemp = size.height * (1 - ((temp2 - minTemp) / tempRange).coerceIn(0f, 1f))
-                            drawLine(color = tempColor, start = Offset(i * stepX, p1yTemp), end = Offset((i + 1) * stepX, p2yTemp), strokeWidth = 4f)
-
-                            // Ambient Temperature
-                            val ambient1 = data[i].ambientTemp
-                            val ambient2 = data[i+1].ambientTemp
-                            val p1yAmbient = size.height * (1 - ((ambient1 - minTemp) / tempRange).coerceIn(0f, 1f))
-                            val p2yAmbient = size.height * (1 - ((ambient2 - minTemp) / tempRange).coerceIn(0f, 1f))
-                            drawLine(color = ambientTempColor, start = Offset(i * stepX, p1yAmbient), end = Offset((i + 1) * stepX, p2yAmbient), strokeWidth = 4f)
-
-                            // Shock
-                            val shock1 = shocks[i]
-                            val shock2 = shocks[i+1]
-                            val p1yShock = size.height * (1 - ((shock1 - minShock) / shockRange).coerceIn(0f, 1f))
-                            val p2yShock = size.height * (1 - ((shock2 - minShock) / shockRange).coerceIn(0f, 1f))
-                            drawLine(color = shockColor, start = Offset(i * stepX, p1yShock), end = Offset((i + 1) * stepX, p2yShock), strokeWidth = 4f)
+                            val p1y = size.height * (1 - ((shocks[i] - minShock) / shockRange).coerceIn(0f, 1f))
+                            val p2y = size.height * (1 - ((shocks[i + 1] - minShock) / shockRange).coerceIn(0f, 1f))
+                            drawLine(
+                                color = shockColor,
+                                start = Offset(i * stepX, p1y),
+                                end = Offset((i + 1) * stepX, p2y),
+                                strokeWidth = 4f
+                            )
                         }
-                    } else if (data.isNotEmpty()) {
-                        val reading = data.first()
-                        val p1yTemp = size.height * (1 - ((reading.temperature - minTemp) / tempRange).coerceIn(0f, 1f))
-                        drawCircle(tempColor, radius = 8f, center = Offset(0f, p1yTemp))
-
-                        val p1yAmbient = size.height * (1 - ((reading.ambientTemp - minTemp) / tempRange).coerceIn(0f, 1f))
-                        drawCircle(ambientTempColor, radius = 8f, center = Offset(0f, p1yAmbient))
-
-                        val p1yShock = size.height * (1 - ((shocks.first() - minShock) / shockRange).coerceIn(0f, 1f))
-                        drawCircle(shockColor, radius = 8f, center = Offset(0f, p1yShock))
+                    } else if (data.isNotEmpty()){
+                        val p1y = size.height * (1 - ((shocks.first() - minShock) / shockRange).coerceIn(0f, 1f))
+                        drawCircle(shockColor, radius = 8f, center = Offset(0f, p1y))
                     }
                 }
             }
