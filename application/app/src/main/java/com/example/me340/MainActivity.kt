@@ -34,8 +34,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
@@ -83,7 +85,7 @@ data class Song(val id: Long, val title: String, val artist: String, val content
 @SuppressLint("MissingPermission")
 class MainActivity : ComponentActivity() {
     private val bluetoothManager: BluetoothManager by lazy {
-        getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     }
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
         bluetoothManager.adapter
@@ -126,6 +128,7 @@ fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
     var dangerStatus by remember { mutableStateOf(DangerStatus(isDangerous = false, reason = "")) }
     var songList by remember { mutableStateOf<List<Song>>(emptyList()) }
     var lineBuffer by remember { mutableStateOf("") }
+    var currentScreen by remember { mutableStateOf("dashboard") } // "dashboard" or "settings"
 
     val requestPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         if (permissions.entries.all { it.value }) {
@@ -287,23 +290,42 @@ fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("ME340 prototype") }) }
-    ) { paddingValues ->
-        Box(modifier = Modifier.padding(paddingValues)) {
-            HealthDashboardUI(
-                connected = connectedDevice != null,
-                readings = sensorReadings,
-                dangerStatus = dangerStatus,
-                songs = songList,
-                onConnectClick = {
-                    startBleScan()
-                    showDeviceDialog = true
+        topBar = {
+            TopAppBar(
+                title = { Text(if (currentScreen == "dashboard") "ME340 prototype" else "연결 설정") },
+                navigationIcon = {
+                    if (currentScreen == "settings") {
+                        IconButton(onClick = { currentScreen = "dashboard" }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    }
                 },
-                onDisconnect = {
-                    bluetoothGatt?.disconnect()
-                    // gattCallback will handle state changes
+                actions = {
+                    if (currentScreen == "dashboard") {
+                        IconButton(onClick = { currentScreen = "settings" }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    }
                 }
             )
+        }
+    ) { paddingValues ->
+        Box(modifier = Modifier.padding(paddingValues)) {
+            when (currentScreen) {
+                "dashboard" -> DashboardContent(
+                    readings = sensorReadings,
+                    dangerStatus = dangerStatus,
+                    songs = songList
+                )
+                "settings" -> SettingsContent(
+                    connected = connectedDevice != null,
+                    onConnectClick = {
+                        startBleScan()
+                        showDeviceDialog = true
+                    },
+                    onDisconnect = { bluetoothGatt?.disconnect() }
+                )
+            }
 
             if (showDeviceDialog) {
                 DeviceDiscoveryDialog(
@@ -332,13 +354,10 @@ fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
 }
 
 @Composable
-fun HealthDashboardUI(
-    connected: Boolean,
+fun DashboardContent(
     readings: List<SensorReading>,
     dangerStatus: DangerStatus,
-    songs: List<Song>,
-    onConnectClick: () -> Unit,
-    onDisconnect: () -> Unit
+    songs: List<Song>
 ) {
     val currentReading = readings.lastOrNull()
     val accelRMS = currentReading?.let {
@@ -356,7 +375,7 @@ fun HealthDashboardUI(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()) // 화면 전체를 스크롤 가능하게 만듭니다.
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -367,7 +386,7 @@ fun HealthDashboardUI(
         }
         SensorDataPanel(reading = currentReading, accelRMS = accelRMS)
         Spacer(Modifier.height(16.dp))
-        TemperatureChart(data = readings)
+        SensorDataChart(data = readings)
         Spacer(Modifier.height(16.dp))
 
         if (songs.isEmpty()) {
@@ -384,16 +403,28 @@ fun HealthDashboardUI(
         } else {
             MusicPlayerUI(songs = songs)
         }
-        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
 
-        // ESP32 연결 버튼을 별도의 카드로 분리합니다.
+@Composable
+fun SettingsContent(
+    connected: Boolean,
+    onConnectClick: () -> Unit,
+    onDisconnect: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         EspConnectionControl(
             connected = connected,
             onConnectClick = onConnectClick,
             onDisconnect = onDisconnect
         )
         Spacer(modifier = Modifier.height(16.dp))
-
         SpeakerConnectionGuide()
     }
 }
@@ -621,21 +652,11 @@ fun SensorDataPanel(reading: SensorReading?, accelRMS: Float?) {
                 horizontalArrangement = Arrangement.SpaceAround
             ){
                 DataColumn("체온", "${reading?.temperature ?: "--"}°C")
+                DataColumn("주변 온도", "${reading?.ambientTemp ?: "--"}°C")
                 DataColumn("충격량(RMS)", String.format("%.2f", accelRMS ?: 0f))
             }
 
-            Spacer(Modifier.height(16.dp))
 
-            Text("가속도 (X, Y, Z)", style = MaterialTheme.typography.titleMedium)
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DataColumn("X", String.format("%.2f", reading?.accX ?: 0f))
-                DataColumn("Y", String.format("%.2f", reading?.accY ?: 0f))
-                DataColumn("Z", String.format("%.2f", reading?.accZ ?: 0f))
-            }
         }
     }
 }
@@ -649,34 +670,70 @@ fun DataColumn(label: String, value: String) {
 }
 
 @Composable
-fun TemperatureChart(data: List<SensorReading>) {
+fun SensorDataChart(data: List<SensorReading>) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text("실시간 체온 그래프", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+        Text("실시간 센서 그래프", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+            Text("-", color = Color.Red, modifier = Modifier.padding(end = 4.dp))
+            Text("체온", modifier = Modifier.padding(end = 16.dp))
+            Text("-", color = Color.Green, modifier = Modifier.padding(end = 4.dp))
+            Text("충격량")
+        }
         Box(
-            modifier = Modifier.fillMaxWidth().height(150.dp).background(Color.LightGray.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+                .background(Color.LightGray.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                .padding(8.dp)
         ) {
             if (data.isNotEmpty()) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    val stepX = if (data.size > 1) size.width / (data.size - 1) else 0f
+
+                    // Temperature data and drawing
                     val temperatures = data.map { it.temperature }
                     val maxTemp = (temperatures.maxOrNull() ?: 40f).coerceAtLeast(38f)
                     val minTemp = (temperatures.minOrNull() ?: 35f).coerceAtMost(36f)
                     val tempRange = (maxTemp - minTemp).takeIf { it > 0 } ?: 1f
-                    val stepX = if (data.size > 1) size.width / (data.size - 1) else 0f
 
                     if (data.size > 1) {
                         for (i in 0 until data.size - 1) {
                             val p1y = size.height * (1 - ((temperatures[i] - minTemp) / tempRange).coerceIn(0f, 1f))
-                            val p2y = size.height * (1 - ((temperatures[i+1] - minTemp) / tempRange).coerceIn(0f, 1f))
+                            val p2y = size.height * (1 - ((temperatures[i + 1] - minTemp) / tempRange).coerceIn(0f, 1f))
                             drawLine(
-                                color = Color.Blue,
+                                color = Color.Red,
                                 start = Offset(i * stepX, p1y),
                                 end = Offset((i + 1) * stepX, p2y),
                                 strokeWidth = 4f
                             )
                         }
                     } else {
-                        val p1y = size.height * (1 - ((temperatures[0] - minTemp) / tempRange).coerceIn(0f, 1f))
-                        drawCircle(Color.Blue, radius=8f, center=Offset(0f, p1y))
+                        val p1y = size.height * (1 - ((temperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
+                        drawCircle(Color.Red, radius = 8f, center = Offset(0f, p1y))
+                    }
+
+                    // Shock data (accelRMS) and drawing
+                    val shocks = data.map { reading ->
+                        sqrt((reading.accX * reading.accX + reading.accY * reading.accY + reading.accZ * reading.accZ) / 3f)
+                    }
+                    val maxShock = (shocks.maxOrNull() ?: 20f).coerceAtLeast(15f)
+                    val minShock = (shocks.minOrNull() ?: 0f)
+                    val shockRange = (maxShock - minShock).takeIf { it > 0 } ?: 1f
+
+                    if (data.size > 1) {
+                        for (i in 0 until data.size - 1) {
+                            val p1y = size.height * (1 - ((shocks[i] - minShock) / shockRange).coerceIn(0f, 1f))
+                            val p2y = size.height * (1 - ((shocks[i + 1] - minShock) / shockRange).coerceIn(0f, 1f))
+                            drawLine(
+                                color = Color.Green,
+                                start = Offset(i * stepX, p1y),
+                                end = Offset((i + 1) * stepX, p2y),
+                                strokeWidth = 4f
+                            )
+                        }
+                    } else {
+                        val p1y = size.height * (1 - ((shocks.first() - minShock) / shockRange).coerceIn(0f, 1f))
+                        drawCircle(Color.Green, radius = 8f, center = Offset(0f, p1y))
                     }
                 }
             }
