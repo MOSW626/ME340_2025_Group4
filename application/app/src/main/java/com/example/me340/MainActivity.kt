@@ -376,14 +376,40 @@ fun HealthDashboardUI(
                 MusicPlayerUI(songs = songs)
             }
             Spacer(modifier = Modifier.height(16.dp))
+            SpeakerConnectionGuide()
+            Spacer(modifier = Modifier.height(16.dp))
             if (connected) {
-                Button(onClick = onDisconnect) { Text("Disconnect") }
+                Button(onClick = onDisconnect) { Text("ESP32 연결 해제") }
             } else {
-                Button(onClick = onConnectClick) { Text("블루투스 연결") }
+                Button(onClick = onConnectClick) { Text("ESP32 센서 연결") }
             }
         }
     }
 }
+
+@Composable
+fun SpeakerConnectionGuide() {
+    val context = LocalContext.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("스피커 연결 안내", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(
+                text = "MH-M38 스피커는 스마트폰의 블루투스 설정에서 직접 페어링하고 연결해주세요. 한번 연결해두면 앱에서 음악 재생 시 자동으로 소리가 나옵니다.",
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp)
+            )
+            Button(onClick = {
+                context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+            }) {
+                Text("블루투스 설정으로 이동")
+            }
+        }
+    }
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
