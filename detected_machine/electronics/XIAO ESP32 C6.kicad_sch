@@ -1,0 +1,266 @@
+(kicad_sch
+	(version 20250114)
+	(generator "eeschema")
+	(generator_version "9.0")
+	(uuid "ef90cf75-f96a-4bad-9f2c-688024ccf7ef")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 30.734 63.5)
+		(size 43.18 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "76b7c2f1-76a8-42d5-8146-a3a0d1d4aba1")
+		(property "Sheetname" "01 Descriptions"
+			(at 30.734 62.7884 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "01 Descriptions.kicad_sch"
+			(at 30.734 89.4846 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "XIAO ESP32 C6"
+				(path "/ef90cf75-f96a-4bad-9f2c-688024ccf7ef"
+					(page "1")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 119.38 63.5)
+		(size 38.1 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "a2f00195-2087-475d-8d89-139d03421c3b")
+		(property "Sheetname" "02 Block Diagram"
+			(at 119.38 62.7884 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "02 Block Diagram.kicad_sch"
+			(at 119.38 89.4846 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "XIAO ESP32 C6"
+				(path "/ef90cf75-f96a-4bad-9f2c-688024ccf7ef"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 217.678 112.776)
+		(size 46.228 27.94)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "aa2aa787-73ee-40b4-8f0c-e9f653d430a2")
+		(property "Sheetname" "06 BAT"
+			(at 217.678 112.0644 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "06 BAT.kicad_sch"
+			(at 217.678 141.3006 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "XIAO ESP32 C6"
+				(path "/ef90cf75-f96a-4bad-9f2c-688024ccf7ef"
+					(page "7")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 31.75 127)
+		(size 38.1 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "b3f5baf3-01a5-4a0b-998a-77c7a1e9770c")
+		(property "Sheetname" "04 ESP32 C6"
+			(at 31.75 126.2884 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "04 ESP32 C6.kicad_sch"
+			(at 31.75 152.9846 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "XIAO ESP32 C6"
+				(path "/ef90cf75-f96a-4bad-9f2c-688024ccf7ef"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 222.25 63.5)
+		(size 38.1 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "c7431f7d-5eee-4f48-ac62-0fac3486818b")
+		(property "Sheetname" "03 Power"
+			(at 222.25 62.7884 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "03 Power.kicad_sch"
+			(at 222.25 89.4846 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "XIAO ESP32 C6"
+				(path "/ef90cf75-f96a-4bad-9f2c-688024ccf7ef"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 121.412 123.698)
+		(size 39.624 24.13)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "e4d07404-9cd3-427f-bfd0-82f4f7bef40f")
+		(property "Sheetname" "05 SENSE"
+			(at 121.412 122.9864 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "05 SENSE.kicad_sch"
+			(at 121.412 148.4126 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "XIAO ESP32 C6"
+				(path "/ef90cf75-f96a-4bad-9f2c-688024ccf7ef"
+					(page "6")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+	(embedded_fonts no)
+)
