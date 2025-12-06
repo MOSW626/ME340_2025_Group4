@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -44,8 +45,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -576,7 +579,7 @@ fun MusicPlayerUI(songs: List<Song>) {
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Now Playing", style = MaterialTheme.typography.titleMedium)
+            Text("재생중", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(4.dp))
             Text(currentSong?.title ?: "선택된 노래 없음", fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(currentSong?.artist ?: "", fontSize = 14.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -671,101 +674,119 @@ fun DataColumn(label: String, value: String) {
 }
 
 @Composable
+fun LegendItem(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(color, CircleShape)
+                .clip(CircleShape)
+        )
+        Text(text, modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
+    }
+}
+
+@Composable
 fun SensorDataChart(data: List<SensorReading>) {
-    val tempColor = Color(0xFFEC407A) // Pinkish Red
-    val ambientTempColor = Color(0xFF42A5F5) // Blue
-    val shockColor = Color(0xFF26A69A) // Teal
+    val tempColor = Color(0xFFE57373) // Soft Red
+    val ambientTempColor = Color(0xFF64B5F6) // Soft Blue
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text("실시간 센서 그래프", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-            Text("-", color = tempColor, modifier = Modifier.padding(end = 4.dp))
-            Text("체온", modifier = Modifier.padding(end = 8.dp))
-            Text("-", color = ambientTempColor, modifier = Modifier.padding(end = 4.dp))
-            Text("주변온도", modifier = Modifier.padding(end = 8.dp))
-            Text("-", color = shockColor, modifier = Modifier.padding(end = 4.dp))
-            Text("낙상")
+            LegendItem(color = tempColor, text = "체온")
+            LegendItem(color = ambientTempColor, text = "주변온도")
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(150.dp)
-                .background(Color.LightGray.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                .padding(8.dp)
-        ) {
-            if (data.isNotEmpty()) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val stepX = if (data.size > 1) size.width / (data.size - 1) else 0f
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier
+                    .height(150.dp)
+                    .padding(end = 8.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End
+            ) {
+                Text("50°C", fontSize = 12.sp, color = Color.Gray)
+                Text("25°C", fontSize = 12.sp, color = Color.Gray)
+                Text("0°C", fontSize = 12.sp, color = Color.Gray)
+                Text("-20°C", fontSize = 12.sp, color = Color.Gray)
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(150.dp)
+                    .background(Color.LightGray.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                    .padding(8.dp)
+            ) {
+                if (data.isNotEmpty()) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val stepX = if (data.size > 1) size.width / (data.size - 1) else 0f
+                        val maxTemp = 50f
+                        val minTemp = -20f
+                        val tempRange = (maxTemp - minTemp)
 
-                    // Temperature data and drawing
-                    val temperatures = data.map { it.temperature }
-                    val ambientTemperatures = data.map { it.ambientTemp }
-                    val allTemps = temperatures + ambientTemperatures
-                    val maxTemp = (allTemps.maxOrNull() ?: 40f).coerceAtLeast(38f)
-                    val minTemp = (allTemps.minOrNull() ?: 20f).coerceAtMost(36f)
-                    val tempRange = (maxTemp - minTemp).takeIf { it > 0 } ?: 1f
-
-                    // Draw Body Temperature
-                    if (data.size > 1) {
-                        for (i in 0 until data.size - 1) {
-                            val p1y = size.height * (1 - ((temperatures[i] - minTemp) / tempRange).coerceIn(0f, 1f))
-                            val p2y = size.height * (1 - ((temperatures[i + 1] - minTemp) / tempRange).coerceIn(0f, 1f))
-                            drawLine(
-                                color = tempColor,
-                                start = Offset(i * stepX, p1y),
-                                end = Offset((i + 1) * stepX, p2y),
-                                strokeWidth = 4f
-                            )
+                        // Draw Grid
+                        val gridColor = Color.LightGray.copy(alpha = 0.5f)
+                        val gridInterval = 10f
+                        var currentGridTemp = minTemp
+                        while(currentGridTemp <= maxTemp) {
+                            if (currentGridTemp != minTemp && currentGridTemp != maxTemp && currentGridTemp != 25f && currentGridTemp != 0f) {
+                                val y = size.height * (1 - ((currentGridTemp - minTemp) / tempRange))
+                                drawLine(
+                                    color = gridColor,
+                                    start = Offset(0f, y),
+                                    end = Offset(size.width, y),
+                                    strokeWidth = 1f,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
+                                )
+                            }
+                            currentGridTemp += gridInterval
                         }
-                    } else if (data.isNotEmpty()){
-                        val p1y = size.height * (1 - ((temperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
-                        drawCircle(tempColor, radius = 8f, center = Offset(0f, p1y))
-                    }
 
-                    // Draw Ambient Temperature
-                    if (data.size > 1) {
-                        for (i in 0 until data.size - 1) {
-                            val p1y = size.height * (1 - ((ambientTemperatures[i] - minTemp) / tempRange).coerceIn(0f, 1f))
-                            val p2y = size.height * (1 - ((ambientTemperatures[i + 1] - minTemp) / tempRange).coerceIn(0f, 1f))
-                            drawLine(
-                                color = ambientTempColor,
-                                start = Offset(i * stepX, p1y),
-                                end = Offset((i + 1) * stepX, p2y),
-                                strokeWidth = 4f
-                            )
+
+                        // Temperature data
+                        val temperatures = data.map { it.temperature }
+                        val ambientTemperatures = data.map { it.ambientTemp }
+
+                        // Draw Body Temperature
+                        if (data.size > 1) {
+                            for (i in 0 until data.size - 1) {
+                                val p1y = size.height * (1 - ((temperatures[i] - minTemp) / tempRange).coerceIn(0f, 1f))
+                                val p2y = size.height * (1 - ((temperatures[i + 1] - minTemp) / tempRange).coerceIn(0f, 1f))
+                                drawLine(
+                                    color = tempColor,
+                                    start = Offset(i * stepX, p1y),
+                                    end = Offset((i + 1) * stepX, p2y),
+                                    strokeWidth = 4f
+                                )
+                            }
+                        } else if (data.isNotEmpty()){
+                            val p1y = size.height * (1 - ((temperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
+                            drawCircle(tempColor, radius = 8f, center = Offset(0f, p1y))
                         }
-                    } else if (data.isNotEmpty()){
-                        val p1y = size.height * (1 - ((ambientTemperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
-                        drawCircle(ambientTempColor, radius = 8f, center = Offset(0f, p1y))
-                    }
 
-
-                    // Shock data (isCriticalShock) and drawing
-                    val shocks = data.map { it.isCriticalShock.toFloat() }
-                    val maxShock = 1f
-                    val minShock = 0f
-                    val shockRange = (maxShock - minShock).takeIf { it > 0 } ?: 1f
-
-                    if (data.size > 1) {
-                        for (i in 0 until data.size - 1) {
-                            val p1y = size.height * (1 - ((shocks[i] - minShock) / shockRange).coerceIn(0f, 1f))
-                            val p2y = size.height * (1 - ((shocks[i + 1] - minShock) / shockRange).coerceIn(0f, 1f))
-                            drawLine(
-                                color = shockColor,
-                                start = Offset(i * stepX, p1y),
-                                end = Offset((i + 1) * stepX, p2y),
-                                strokeWidth = 4f
-                            )
+                        // Draw Ambient Temperature
+                        if (data.size > 1) {
+                            for (i in 0 until data.size - 1) {
+                                val p1y = size.height * (1 - ((ambientTemperatures[i] - minTemp) / tempRange).coerceIn(0f, 1f))
+                                val p2y = size.height * (1 - ((ambientTemperatures[i + 1] - minTemp) / tempRange).coerceIn(0f, 1f))
+                                drawLine(
+                                    color = ambientTempColor,
+                                    start = Offset(i * stepX, p1y),
+                                    end = Offset((i + 1) * stepX, p2y),
+                                    strokeWidth = 4f
+                                )
+                            }
+                        } else if (data.isNotEmpty()){
+                            val p1y = size.height * (1 - ((ambientTemperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
+                            drawCircle(ambientTempColor, radius = 8f, center = Offset(0f, p1y))
                         }
-                    } else if (data.isNotEmpty()){
-                        val p1y = size.height * (1 - ((shocks.first() - minShock) / shockRange).coerceIn(0f, 1f))
-                        drawCircle(shockColor, radius = 8f, center = Offset(0f, p1y))
                     }
                 }
             }
         }
     }
 }
+
 
 fun getAudioFiles(context: Context): List<Song> {
     val songList = mutableListOf<Song>()
