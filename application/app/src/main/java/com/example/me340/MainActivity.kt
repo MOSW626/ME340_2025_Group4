@@ -384,13 +384,7 @@ fun DashboardContent(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        Text(
-            text = currentDate,
-            fontSize = 16.sp,
-            color = Color.Gray,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        SensorDataPanel(reading = currentReading)
+        SensorDataPanel(reading = currentReading, date = currentDate)
         Spacer(Modifier.height(16.dp))
         SensorDataChart(data = readings)
         Spacer(Modifier.height(16.dp))
@@ -647,12 +641,18 @@ fun AlertPanel(reason: String) {
 }
 
 @Composable
-fun SensorDataPanel(reading: SensorReading?) {
+fun SensorDataPanel(reading: SensorReading?, date: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = date,
+                fontSize = 16.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceAround
@@ -717,31 +717,29 @@ fun SensorDataChart(data: List<SensorReading>) {
                     .background(Color.LightGray.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
                     .padding(8.dp)
             ) {
-                if (data.isNotEmpty()) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val maxTemp = 50f
+                    val minTemp = -20f
+                    val tempRange = (maxTemp - minTemp)
+
+                    // Draw Grid
+                    val gridColor = Color.Gray.copy(alpha = 0.5f)
+                    val gridInterval = 10f
+                    var currentGridTemp = minTemp
+                    while (currentGridTemp <= maxTemp) {
+                        val y = size.height * (1 - ((currentGridTemp - minTemp) / tempRange))
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = 1f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
+                        )
+                        currentGridTemp += gridInterval
+                    }
+
+                    if (data.isNotEmpty()) {
                         val stepX = if (data.size > 1) size.width / (data.size - 1) else 0f
-                        val maxTemp = 50f
-                        val minTemp = -20f
-                        val tempRange = (maxTemp - minTemp)
-
-                        // Draw Grid
-                        val gridColor = Color.LightGray.copy(alpha = 0.5f)
-                        val gridInterval = 10f
-                        var currentGridTemp = minTemp
-                        while(currentGridTemp <= maxTemp) {
-                            if (currentGridTemp != minTemp && currentGridTemp != maxTemp && currentGridTemp != 25f && currentGridTemp != 0f) {
-                                val y = size.height * (1 - ((currentGridTemp - minTemp) / tempRange))
-                                drawLine(
-                                    color = gridColor,
-                                    start = Offset(0f, y),
-                                    end = Offset(size.width, y),
-                                    strokeWidth = 1f,
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
-                                )
-                            }
-                            currentGridTemp += gridInterval
-                        }
-
 
                         // Temperature data
                         val temperatures = data.map { it.temperature }
@@ -759,7 +757,7 @@ fun SensorDataChart(data: List<SensorReading>) {
                                     strokeWidth = 4f
                                 )
                             }
-                        } else if (data.isNotEmpty()){
+                        } else {
                             val p1y = size.height * (1 - ((temperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
                             drawCircle(tempColor, radius = 8f, center = Offset(0f, p1y))
                         }
@@ -776,7 +774,7 @@ fun SensorDataChart(data: List<SensorReading>) {
                                     strokeWidth = 4f
                                 )
                             }
-                        } else if (data.isNotEmpty()){
+                        } else {
                             val p1y = size.height * (1 - ((ambientTemperatures.first() - minTemp) / tempRange).coerceIn(0f, 1f))
                             drawCircle(ambientTempColor, radius = 8f, center = Offset(0f, p1y))
                         }
