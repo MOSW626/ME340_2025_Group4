@@ -80,7 +80,22 @@ data class SensorReading(
     val ambientTemp: Float,
     val isCriticalShock: Int
 )
-data class DangerStatus(val isDangerous: Boolean, val reason: String)
+
+enum class DangerType {
+    NONE,
+    FEVER,
+    FALL
+}
+
+data class DangerStatus(
+    val type: DangerType,
+    val reason: String
+) {
+    // UI에서 기존 코드 호환성을 위해 유지 (type이 NONE이 아니면 위험함)
+    val isDangerous: Boolean
+        get() = type != DangerType.NONE
+}
+
 data class Song(val id: Long, val title: String, val artist: String, val contentUri: Uri)
 
 @SuppressLint("MissingPermission")
@@ -126,7 +141,9 @@ fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
     var connectedDevice by remember { mutableStateOf<BluetoothDevice?>(null) }
     var bluetoothGatt by remember { mutableStateOf<BluetoothGatt?>(null) }
     var sensorReadings by remember { mutableStateOf(listOf<SensorReading>()) }
-    var dangerStatus by remember { mutableStateOf(DangerStatus(isDangerous = false, reason = "")) }
+// 기존: var dangerStatus by remember { mutableStateOf(DangerStatus(isDangerous = false, reason = "")) }
+// 변경:
+    var dangerStatus by remember { mutableStateOf(DangerStatus(DangerType.NONE, "")) }
     var songList by remember { mutableStateOf<List<Song>>(emptyList()) }
     var lineBuffer by remember { mutableStateOf("") }
     var currentScreen by remember { mutableStateOf("dashboard") } // "dashboard" or "settings"
@@ -156,10 +173,16 @@ fun HealthMonitorScreen(bluetoothAdapter: BluetoothAdapter) {
     }
 
     fun checkDanger(reading: SensorReading): DangerStatus {
-        if (reading.temperature >= 38.0f) return DangerStatus(true, "고열 감지 (38°C 이상)")
-        if (reading.temperature <= 35.0f) return DangerStatus(true, "저체온 감지 (35°C 이하)")
-        if (reading.isCriticalShock == 1) return DangerStatus(true, "급격한 충격 감지 (낙상 의심)")
-        return DangerStatus(false, "")
+        // 낙상(충격)을 우선적으로 체크 (응급 상황)
+        if (reading.isCriticalShock == 1) {
+            return DangerStatus(DangerType.FALL, "급격한 충격 감지 (낙상 의심)")
+        }
+        // 그 다음 고열 체크
+        if (reading.temperature >= 38.0f) {
+            return DangerStatus(DangerType.FEVER, "고열 감지 (38°C 이상)")
+        }
+
+        return DangerStatus(DangerType.NONE, "")
     }
 
     val gattCallback = remember {
@@ -363,13 +386,26 @@ fun DashboardContent(
     val currentReading = readings.lastOrNull()
     val currentDate = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy년 MM월 dd일"))
 
+    // 위험 상태가 변경될 때마다 실행
     if (dangerStatus.isDangerous) {
         LaunchedEffect(dangerStatus) {
             val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
-            toneGen.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 1000)
+
+            // 위험 타입에 따라 다른 소리 재생
+            val toneType = when (dangerStatus.type) {
+                DangerType.FALL -> ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK // 낙상: 긴급 사이렌 같은 소리
+                DangerType.FEVER -> ToneGenerator.TONE_CDMA_HIGH_L          // 고열: 높은 피치의 경고음
+                else -> ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD            // 기본
+            }
+
+            // 톤 재생 (재생 시간도 조절 가능)
+            toneGen.startTone(toneType, 1000)
+            delay(1000) // 소리가 끊기지 않도록 잠시 대기 후 release
             toneGen.release()
         }
     }
+
+    // ... (이하 UI 코드는 기존과 동일)
 
     Column(
         modifier = Modifier
@@ -573,7 +609,7 @@ fun MusicPlayerUI(songs: List<Song>) {
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("재생중", style = MaterialTheme.typography.titleMedium)
+            Text("플레이리스트", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(4.dp))
             Text(currentSong?.title ?: "선택된 노래 없음", fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(currentSong?.artist ?: "", fontSize = 14.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -705,10 +741,11 @@ fun SensorDataChart(data: List<SensorReading>) {
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.End
             ) {
-                Text("50°C", fontSize = 12.sp, color = Color.Gray)
-                Text("25°C", fontSize = 12.sp, color = Color.Gray)
+                Text("45°C", fontSize = 12.sp, color = Color.Gray)
+                Text("30°C", fontSize = 12.sp, color = Color.Gray)
+                Text("15°C", fontSize = 12.sp, color = Color.Gray)
                 Text("0°C", fontSize = 12.sp, color = Color.Gray)
-                Text("-20°C", fontSize = 12.sp, color = Color.Gray)
+                Text("-15°C", fontSize = 12.sp, color = Color.Gray)
             }
             Box(
                 modifier = Modifier
@@ -718,13 +755,13 @@ fun SensorDataChart(data: List<SensorReading>) {
                     .padding(8.dp)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val maxTemp = 50f
-                    val minTemp = -20f
+                    val maxTemp = 45f
+                    val minTemp = -15f
                     val tempRange = (maxTemp - minTemp)
 
                     // Draw Grid
                     val gridColor = Color.Gray.copy(alpha = 0.5f)
-                    val gridInterval = 10f
+                    val gridInterval = 15f
                     var currentGridTemp = minTemp
                     while (currentGridTemp <= maxTemp) {
                         val y = size.height * (1 - ((currentGridTemp - minTemp) / tempRange))
